@@ -13,3 +13,6 @@ categories = ["asynchronous", "concurrency"]
 readme = "README.md"
 
 [dependencies]
+async-channel = "^1.4"
+executor-trait = "^0.7"
+once_cell = "^1.5"
