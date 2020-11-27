@@ -1,5 +1,9 @@
 use async_channel::Receiver;
-use core::future::Future;
+use core::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use executor_trait::Executor;
 use once_cell::sync::OnceCell;
 
@@ -14,7 +18,10 @@ pub fn spawn<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static
     let inner = EXECUTOR.get().unwrap().spawn(Box::pin(async move {
         drop(send.send(future.await).await);
     }));
-    Task { inner, recv }
+    Task {
+        inner,
+        recv: recv.into(),
+    }
 }
 
 pub fn spawn_local<T: 'static>(future: impl Future<Output = T> + 'static) -> Task<T> {
@@ -22,7 +29,10 @@ pub fn spawn_local<T: 'static>(future: impl Future<Output = T> + 'static) -> Tas
     let inner = EXECUTOR.get().unwrap().spawn_local(Box::pin(async move {
         drop(send.send(future.await).await);
     }));
-    Task { inner, recv }
+    Task {
+        inner,
+        recv: recv.into(),
+    }
 }
 
 pub async fn spawn_blocking(f: impl FnOnce() + Send + 'static) {
@@ -31,16 +41,56 @@ pub async fn spawn_blocking(f: impl FnOnce() + Send + 'static) {
 
 pub struct Task<T> {
     inner: Box<dyn executor_trait::Task>,
-    recv: Receiver<T>,
+    recv: ReceiverWrapper<T>,
 }
 
-impl<T> Task<T> {
+impl<T: 'static> Task<T> {
     pub fn detach(self) {
         self.inner.detach();
     }
 
     pub async fn cancel(self) -> Option<T> {
         self.inner.cancel().await?;
-        self.recv.recv().await.ok()
+        Some(self.recv.await)
+    }
+}
+
+impl<T: 'static> Future for Task<T> {
+    type Output = T;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+        Pin::new(&mut self.recv).poll(cx)
+    }
+}
+
+pub struct ReceiverWrapper<T> {
+    recv: Receiver<T>,
+    recv_fut: Option<Pin<Box<dyn Future<Output = T>>>>,
+}
+
+impl<T: 'static> Future for ReceiverWrapper<T> {
+    type Output = T;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+        if self.recv_fut.is_none() {
+            let recv = self.recv.clone();
+            self.recv_fut = Some(Box::pin(async move { recv.recv().await.unwrap() }));
+        }
+        match self.recv_fut.as_mut().unwrap().as_mut().poll(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(t) => {
+                self.recv_fut = None;
+                Poll::Ready(t)
+            }
+        }
+    }
+}
+
+impl<T> From<Receiver<T>> for ReceiverWrapper<T> {
+    fn from(recv: Receiver<T>) -> Self {
+        Self {
+            recv,
+            recv_fut: None,
+        }
     }
 }
