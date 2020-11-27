@@ -35,8 +35,20 @@ pub fn spawn_local<T: 'static>(future: impl Future<Output = T> + 'static) -> Tas
     }
 }
 
-pub async fn spawn_blocking(f: impl FnOnce() + Send + 'static) {
-    EXECUTOR.get().unwrap().spawn_blocking(Box::new(f)).await
+pub async fn spawn_blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (send, recv) = async_channel::bounded(1);
+    EXECUTOR
+        .get()
+        .unwrap()
+        .spawn_blocking(Box::new(|| {
+            let res = f();
+            crate::spawn(async move {
+                drop(send.send(res).await);
+            })
+            .detach();
+        }))
+        .await;
+    recv.recv().await.unwrap()
 }
 
 pub struct Task<T> {
