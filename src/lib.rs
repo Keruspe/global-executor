@@ -1,5 +1,14 @@
+//! Configure a global executor you can reuse everywhere
+
+#![forbid(unsafe_code)]
+#![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
+#![no_std]
+extern crate alloc;
+
+use alloc::boxed::Box;
 use async_channel::Receiver;
 use core::{
+    fmt,
     future::Future,
     pin::Pin,
     task::{Context, Poll},
@@ -67,6 +76,12 @@ impl<T: 'static> Task<T> {
     }
 }
 
+impl<T> fmt::Debug for Task<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Task").finish()
+    }
+}
+
 impl<T: 'static> Future for Task<T> {
     type Output = T;
 
@@ -75,7 +90,7 @@ impl<T: 'static> Future for Task<T> {
     }
 }
 
-pub struct ReceiverWrapper<T> {
+struct ReceiverWrapper<T> {
     recv: Receiver<T>,
     recv_fut: Option<Pin<Box<dyn Future<Output = T>>>>,
 }
