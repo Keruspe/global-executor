@@ -22,6 +22,14 @@ pub fn init(executor: impl Executor + Send + Sync + 'static) {
     EXECUTOR.set(Box::new(executor)).map_err(|_| ()).unwrap();
 }
 
+pub fn block_on<T: 'static>(future: impl Future<Output = T> + 'static) -> T {
+    let (send, recv) = async_channel::bounded(1);
+    EXECUTOR.get().unwrap().block_on(Box::pin(async move {
+        drop(send.send(future.await).await);
+    }));
+    recv.try_recv().unwrap()
+}
+
 pub fn spawn<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> Task<T> {
     let (send, recv) = async_channel::bounded(1);
     let inner = EXECUTOR.get().unwrap().spawn(Box::pin(async move {

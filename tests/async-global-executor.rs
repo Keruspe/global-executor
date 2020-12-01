@@ -12,6 +12,10 @@ struct AsyncGlobalTask(async_global_executor::Task<()>);
 
 #[async_trait]
 impl Executor for AsyncGlobalExecutor {
+    fn block_on(&self, f: Pin<Box<dyn Future<Output = ()>>>) {
+        async_global_executor::block_on(f)
+    }
+
     fn spawn(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) -> Box<dyn Task> {
         Box::new(AsyncGlobalTask(async_global_executor::spawn(f)))
     }
@@ -49,7 +53,7 @@ mod test {
     #[test]
     fn test_async_global_executor() {
         global_executor::init(super::AsyncGlobalExecutor);
-        let res = async_global_executor::block_on(async {
+        let res = global_executor::block_on(async {
             let r1 = global_executor::spawn(async { 1 + 2 }).await;
             let r2 = global_executor::spawn_local(async { 3 + 4 }).await;
             let r3 = global_executor::spawn_blocking(|| 5 + 6).await;
