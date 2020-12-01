@@ -8,33 +8,34 @@ use executor_trait::{Executor, Task};
 
 mod tester;
 
-struct AsyncGlobalExecutor;
+struct AsyncStd;
 
-struct AsyncGlobalTask(async_global_executor::Task<()>);
+struct AsyncStdTask(async_std::task::JoinHandle<()>);
 
 #[async_trait]
-impl Executor for AsyncGlobalExecutor {
+impl Executor for AsyncStd {
     fn block_on(&self, f: Pin<Box<dyn Future<Output = ()>>>) {
-        async_global_executor::block_on(f)
+        async_std::task::block_on(f)
     }
 
     fn spawn(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) -> Box<dyn Task> {
-        Box::new(AsyncGlobalTask(async_global_executor::spawn(f)))
+        Box::new(AsyncStdTask(async_std::task::spawn(f)))
     }
 
     fn spawn_local(&self, f: Pin<Box<dyn Future<Output = ()>>>) -> Box<dyn Task> {
-        Box::new(AsyncGlobalTask(async_global_executor::spawn_local(f)))
+        Box::new(AsyncStdTask(async_std::task::spawn_local(f)))
     }
 
     async fn spawn_blocking(&self, f: Box<dyn FnOnce() + Send + 'static>) {
-        blocking::unblock(f).await
+        async_std::task::spawn_blocking(f).await
     }
 }
 
 #[async_trait(?Send)]
-impl Task for AsyncGlobalTask {
+impl Task for AsyncStdTask {
     fn detach(self: Box<Self>) {
-        self.0.detach();
+        // async-std detaches task on drop
+        drop(self)
     }
 
     async fn cancel(self: Box<Self>) -> Option<()> {
@@ -42,7 +43,7 @@ impl Task for AsyncGlobalTask {
     }
 }
 
-impl Future for AsyncGlobalTask {
+impl Future for AsyncStdTask {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
@@ -52,5 +53,5 @@ impl Future for AsyncGlobalTask {
 
 #[test]
 fn test_async_global_executor() {
-    tester::test_global_executor(AsyncGlobalExecutor);
+    tester::test_global_executor(AsyncStd);
 }
