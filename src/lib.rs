@@ -61,8 +61,7 @@ pub async fn spawn_blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 's
             let res = f();
             crate::spawn(async move {
                 drop(send.send(res).await);
-            })
-            .detach();
+            });
         }))
         .await;
     recv.recv().await.unwrap()
@@ -74,10 +73,6 @@ pub struct Task<T> {
 }
 
 impl<T: 'static> Task<T> {
-    pub fn detach(self) {
-        self.inner.detach();
-    }
-
     pub async fn cancel(self) -> Option<T> {
         self.inner.cancel().await?;
         Some(self.recv.await)
